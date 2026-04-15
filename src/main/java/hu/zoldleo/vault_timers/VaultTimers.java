@@ -9,6 +9,6 @@ public class VaultTimers {
     public static final String MODID = "vault_timers";
 
     public VaultTimers(ModContainer modContainer) {
-        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+        modContainer.registerConfig(ModConfig.Type.SERVER, Config.SPEC);
     }
 }
