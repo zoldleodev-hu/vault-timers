@@ -9,26 +9,24 @@ import net.minecraft.world.level.block.entity.vault.VaultServerData;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 public class TimerVaultServerData extends VaultServerData {
-    public static Codec<TimerVaultServerData> CODEC = RecordCodecBuilder.create((instance) -> instance.group(UUIDUtil.CODEC_LINKED_SET.lenientOptionalFieldOf("rewarded_players", Set.of()).forGetter((data) -> data.playerTimers.keySet()), Codec.LONG.listOf().lenientOptionalFieldOf("player_timers", List.of()).forGetter((data) -> new ArrayList<>(data.playerTimers.values())), Codec.LONG.lenientOptionalFieldOf("state_updating_resumes_at", 0L).forGetter((data) -> data.stateUpdatingResumesAt), ItemStack.CODEC.listOf().lenientOptionalFieldOf("items_to_eject", List.of()).forGetter((data) -> data.itemsToEject), Codec.INT.lenientOptionalFieldOf("total_ejections_needed", 0).forGetter((data) -> data.totalEjectionsNeeded)).apply(instance, TimerVaultServerData::new));
-    public Map<UUID, Long> playerTimers = new HashMap<>();
+    public static Codec<TimerVaultServerData> CODEC = RecordCodecBuilder.create((instance) -> instance.group(UUIDUtil.CODEC_LINKED_SET.lenientOptionalFieldOf("rewarded_players", Set.of()).forGetter((data) -> data.rewardedPlayers), Codec.LONG.listOf().lenientOptionalFieldOf("player_timers", List.of()).forGetter((data) -> data.playerTimers), Codec.LONG.lenientOptionalFieldOf("state_updating_resumes_at", 0L).forGetter((data) -> data.stateUpdatingResumesAt), ItemStack.CODEC.listOf().lenientOptionalFieldOf("items_to_eject", List.of()).forGetter((data) -> data.itemsToEject), Codec.INT.lenientOptionalFieldOf("total_ejections_needed", 0).forGetter((data) -> data.totalEjectionsNeeded)).apply(instance, TimerVaultServerData::new));
+    public List<Long> playerTimers = new ArrayList<>();
     public boolean ominous = false;
 
-    public TimerVaultServerData(Set<UUID> rewardedPlayers, List<Long> timers, long stateUpdatingResumesAt, List<ItemStack> itemsToEject, int totalEjectionsNeeded) {
-        UUID[] playerArray = rewardedPlayers.toArray(new UUID[0]);
+    public TimerVaultServerData(Set<UUID> players, List<Long> timers, long stateUpdatingResumesAt, List<ItemStack> itemsToEject, int totalEjectionsNeeded) {
+        UUID[] playerArray = players.toArray(new UUID[0]);
         Long[] timerArray = timers.toArray(new Long[0]);
         for (int i = 0; i < playerArray.length; i++) {
+            rewardedPlayers.add(playerArray[i]);
             if (i < timerArray.length)
-                playerTimers.put(playerArray[i], timerArray[i]);
+                playerTimers.add(timerArray[i]);
             else
-                playerTimers.put(playerArray[i], 0L);
+                playerTimers.add(0L);
         }
         this.stateUpdatingResumesAt = stateUpdatingResumesAt;
         this.itemsToEject.addAll(itemsToEject);
@@ -40,22 +38,64 @@ public class TimerVaultServerData extends VaultServerData {
 
     @Override
     public @NotNull Set<UUID> getRewardedPlayers() {
-        return playerTimers.keySet();
+        return rewardedPlayers;
     }
 
     @Override
     public boolean hasRewardedPlayer(@NotNull Player player) {
-        return playerTimers.containsKey(player.getUUID()) &&
-                player.level().getGameTime() < playerTimers.get(player.getUUID());
+        int i = 0;
+        int result = -1;
+        for (UUID uuid : rewardedPlayers) {
+            if (uuid.equals(player.getUUID())) {
+                result = i;
+                break;
+            }
+            i++;
+        }
+        return result >= 0 && result < playerTimers.size() && player.level().getGameTime() < playerTimers.get(result);
+    }
+
+    public boolean hasRewardedPlayer(UUID uuid, long time) {
+        int i = 0;
+        int result = -1;
+        for (UUID _uuid : rewardedPlayers) {
+            if (_uuid.equals(uuid)) {
+                result = i;
+                break;
+            }
+            i++;
+        }
+        return result >= 0 && result < playerTimers.size() && time < playerTimers.get(result);
     }
 
     @Override
     public void addToRewardedPlayers(@NotNull Player player) {
-        playerTimers.put(player.getUUID(), player.level().getGameTime() + (ominous ? Config.ominous_time : Config.normal_time));
-        if (playerTimers.size() > 128) {
-            Iterator<UUID> iterator = playerTimers.keySet().iterator();
-            if (iterator.hasNext())
-                playerTimers.remove(iterator.next());
+        rewardedPlayers.add(player.getUUID());
+        int i = 0;
+        for (UUID uuid : rewardedPlayers) {
+            if (uuid.equals(player.getUUID())) {
+                long time = player.level().getGameTime() + (ominous ? Config.ominous_time : Config.normal_time);
+                if (i < playerTimers.size())
+                    playerTimers.set(i, time);
+                else
+                    playerTimers.add(time);
+                break;
+            }
+            i++;
+        }
+        if (rewardedPlayers.size() > MAX_REWARD_PLAYERS) {
+            int idxToRemove = -1;
+            UUID uuidToRemove = null;
+            int j = 0;
+            for (UUID uuid : rewardedPlayers) {
+                if (idxToRemove == -1 || playerTimers.get(j) < playerTimers.get(idxToRemove)) {
+                    idxToRemove = j;
+                    uuidToRemove = uuid;
+                }
+                j++;
+            }
+            playerTimers.remove(idxToRemove);
+            rewardedPlayers.remove(uuidToRemove);
         }
         markChanged();
     }
@@ -65,13 +105,16 @@ public class TimerVaultServerData extends VaultServerData {
         stateUpdatingResumesAt = other.stateUpdatingResumesAt();
         itemsToEject.clear();
         itemsToEject.addAll(other.itemsToEject);
+        rewardedPlayers.clear();
         playerTimers.clear();
         if (other instanceof TimerVaultServerData data) {
-            playerTimers.putAll(data.playerTimers);
+            rewardedPlayers.addAll(data.rewardedPlayers);
+            playerTimers.addAll(data.playerTimers);
             return;
         }
-        for (UUID player : other.rewardedPlayers) {
-            playerTimers.put(player, 0L);
+        for (UUID uuid : other.rewardedPlayers) {
+            rewardedPlayers.add(uuid);
+            playerTimers.add(0L);
         }
     }
 }

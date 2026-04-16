@@ -17,7 +17,7 @@ public class VaultSharedDataMixin {
     @ModifyArg(method = "updateConnectedPlayersWithinRange", at = @At(value = "INVOKE", target = "Ljava/util/stream/Stream;filter(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;"))
     private static Predicate<UUID> getConnectedPlayersByTime(Predicate<UUID> predicate, @Local(argsOnly = true) ServerLevel level, @Local(argsOnly = true) VaultServerData serverData) {
         if (serverData instanceof TimerVaultServerData data)
-            return uuid -> !(data.playerTimers.containsKey(uuid) && level.getGameTime() < data.playerTimers.get(uuid));
+            return uuid -> !data.hasRewardedPlayer(uuid, level.getGameTime());
         return predicate;
     }
 }
