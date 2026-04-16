@@ -18,7 +18,13 @@ public class Config {
     public static long ominous_time;
 
     @SubscribeEvent
-    static void onLoad(final ModConfigEvent event) {
+    static void onLoad(final ModConfigEvent.Loading event) {
+        normal_time = NORMAL_TIME.get();
+        ominous_time = OMINOUS_TIME.get();
+    }
+
+    @SubscribeEvent
+    static void onReload(final ModConfigEvent.Reloading event) {
         normal_time = NORMAL_TIME.get();
         ominous_time = OMINOUS_TIME.get();
     }
