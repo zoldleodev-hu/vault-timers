@@ -2,6 +2,7 @@ package hu.zoldleo.vault_timers;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import it.unimi.dsi.fastutil.objects.Object2LongLinkedOpenHashMap;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -14,19 +15,18 @@ import java.util.Set;
 import java.util.UUID;
 
 public class TimerVaultServerData extends VaultServerData {
-    public static Codec<TimerVaultServerData> CODEC = RecordCodecBuilder.create((instance) -> instance.group(UUIDUtil.CODEC_LINKED_SET.lenientOptionalFieldOf("rewarded_players", Set.of()).forGetter((data) -> data.rewardedPlayers), Codec.LONG.listOf().lenientOptionalFieldOf("player_timers", List.of()).forGetter((data) -> data.playerTimers), Codec.LONG.lenientOptionalFieldOf("state_updating_resumes_at", 0L).forGetter((data) -> data.stateUpdatingResumesAt), ItemStack.CODEC.listOf().lenientOptionalFieldOf("items_to_eject", List.of()).forGetter((data) -> data.itemsToEject), Codec.INT.lenientOptionalFieldOf("total_ejections_needed", 0).forGetter((data) -> data.totalEjectionsNeeded)).apply(instance, TimerVaultServerData::new));
-    public List<Long> playerTimers = new ArrayList<>();
+    public static Codec<TimerVaultServerData> CODEC = RecordCodecBuilder.create((instance) -> instance.group(UUIDUtil.CODEC_LINKED_SET.lenientOptionalFieldOf("rewarded_players", Set.of()).forGetter((data) -> data.playerTimers.keySet()), Codec.LONG.listOf().lenientOptionalFieldOf("player_timers", List.of()).forGetter((data) -> new ArrayList<>(data.playerTimers.values())), Codec.LONG.lenientOptionalFieldOf("state_updating_resumes_at", 0L).forGetter((data) -> data.stateUpdatingResumesAt), ItemStack.CODEC.listOf().lenientOptionalFieldOf("items_to_eject", List.of()).forGetter((data) -> data.itemsToEject), Codec.INT.lenientOptionalFieldOf("total_ejections_needed", 0).forGetter((data) -> data.totalEjectionsNeeded)).apply(instance, TimerVaultServerData::new));
+    public Object2LongLinkedOpenHashMap<UUID> playerTimers = new Object2LongLinkedOpenHashMap<>();
     public boolean ominous = false;
 
     public TimerVaultServerData(Set<UUID> players, List<Long> timers, long stateUpdatingResumesAt, List<ItemStack> itemsToEject, int totalEjectionsNeeded) {
         UUID[] playerArray = players.toArray(new UUID[0]);
         Long[] timerArray = timers.toArray(new Long[0]);
         for (int i = 0; i < playerArray.length; i++) {
-            rewardedPlayers.add(playerArray[i]);
             if (i < timerArray.length)
-                playerTimers.add(timerArray[i]);
+                playerTimers.put(playerArray[i], timerArray[i].longValue());
             else
-                playerTimers.add(0L);
+                playerTimers.put(playerArray[i], 0L);
         }
         this.stateUpdatingResumesAt = stateUpdatingResumesAt;
         this.itemsToEject.addAll(itemsToEject);
@@ -38,65 +38,23 @@ public class TimerVaultServerData extends VaultServerData {
 
     @Override
     public @NotNull Set<UUID> getRewardedPlayers() {
-        return rewardedPlayers;
+        return playerTimers.keySet();
     }
 
     @Override
     public boolean hasRewardedPlayer(@NotNull Player player) {
-        int i = 0;
-        int result = -1;
-        for (UUID uuid : rewardedPlayers) {
-            if (uuid.equals(player.getUUID())) {
-                result = i;
-                break;
-            }
-            i++;
-        }
-        return result >= 0 && result < playerTimers.size() && player.level().getGameTime() < playerTimers.get(result);
+        return playerTimers.getLong(player.getUUID()) > player.level().getGameTime(); // time is 0 if not in the playerTimers
     }
 
     public boolean hasRewardedPlayer(UUID uuid, long time) {
-        int i = 0;
-        int result = -1;
-        for (UUID _uuid : rewardedPlayers) {
-            if (_uuid.equals(uuid)) {
-                result = i;
-                break;
-            }
-            i++;
-        }
-        return result >= 0 && result < playerTimers.size() && time < playerTimers.get(result);
+        return playerTimers.getLong(uuid) > time; // time is 0 if not in the playerTimers
     }
 
     @Override
     public void addToRewardedPlayers(@NotNull Player player) {
-        rewardedPlayers.add(player.getUUID());
-        int i = 0;
-        for (UUID uuid : rewardedPlayers) {
-            if (uuid.equals(player.getUUID())) {
-                long time = player.level().getGameTime() + (ominous ? Config.ominous_time : Config.normal_time);
-                if (i < playerTimers.size())
-                    playerTimers.set(i, time);
-                else
-                    playerTimers.add(time);
-                break;
-            }
-            i++;
-        }
-        if (rewardedPlayers.size() > MAX_REWARD_PLAYERS) {
-            int idxToRemove = -1;
-            UUID uuidToRemove = null;
-            int j = 0;
-            for (UUID uuid : rewardedPlayers) {
-                if (idxToRemove == -1 || playerTimers.get(j) < playerTimers.get(idxToRemove)) {
-                    idxToRemove = j;
-                    uuidToRemove = uuid;
-                }
-                j++;
-            }
-            playerTimers.remove(idxToRemove);
-            rewardedPlayers.remove(uuidToRemove);
-        }
+        playerTimers.putAndMoveToLast(player.getUUID(), player.level().getGameTime() + (ominous ? Config.ominous_time : Config.normal_time)); // keep minimum at first
+        if (playerTimers.size() > MAX_REWARD_PLAYERS) // forget first player
+            playerTimers.removeFirstLong();
         markChanged();
     }
 
@@ -105,16 +63,12 @@ public class TimerVaultServerData extends VaultServerData {
         stateUpdatingResumesAt = other.stateUpdatingResumesAt();
         itemsToEject.clear();
         itemsToEject.addAll(other.itemsToEject);
-        rewardedPlayers.clear();
         playerTimers.clear();
         if (other instanceof TimerVaultServerData data) {
-            rewardedPlayers.addAll(data.rewardedPlayers);
-            playerTimers.addAll(data.playerTimers);
+            playerTimers.putAll(data.playerTimers);
             return;
         }
-        for (UUID uuid : other.rewardedPlayers) {
-            rewardedPlayers.add(uuid);
-            playerTimers.add(0L);
-        }
+        for (UUID uuid : other.rewardedPlayers)
+            playerTimers.put(uuid, 0L);
     }
 }
