@@ -18,12 +18,12 @@ public class VaultBlockEntityMixin {
         ((VaultBlockEntity)(Object)this).serverData = new TimerVaultServerData();
     }
 
-    @ModifyArg(method = "saveAdditional", at = @At(value = "INVOKE", target = "Lnet/minecraft/nbt/CompoundTag;store(Ljava/lang/String;Lcom/mojang/serialization/Codec;Lcom/mojang/serialization/DynamicOps;Ljava/lang/Object;)V", ordinal = 2))
+    @ModifyArg(method = "saveAdditional", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/storage/ValueOutput;store(Ljava/lang/String;Lcom/mojang/serialization/Codec;Ljava/lang/Object;)V", ordinal = 2))
     public Codec<TimerVaultServerData> saveData(Codec<TimerVaultServerData> codec) {
         return TimerVaultServerData.CODEC;
     }
 
-    @ModifyArg(method = "loadAdditional", at = @At(value = "INVOKE", target = "Lnet/minecraft/nbt/CompoundTag;read(Ljava/lang/String;Lcom/mojang/serialization/Codec;Lcom/mojang/serialization/DynamicOps;)Ljava/util/Optional;", ordinal = 0))
+    @ModifyArg(method = "loadAdditional", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/storage/ValueInput;read(Ljava/lang/String;Lcom/mojang/serialization/Codec;)Ljava/util/Optional;", ordinal = 0))
     public Codec<TimerVaultServerData> loadData(Codec<TimerVaultServerData> codec) {
         return TimerVaultServerData.CODEC;
     }
